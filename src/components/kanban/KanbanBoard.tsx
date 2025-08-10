@@ -1,28 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  Phone, 
-  MessageCircle, 
-  Calendar, 
-  DollarSign, 
+import {
+  Phone,
+  MessageCircle,
+  Calendar,
+  DollarSign,
   Building2,
   User,
   FileImage,
   Plus,
-  Filter,
   Search,
   Edit,
-  Eye
 } from "lucide-react";
 import { Lead } from "@/types";
 import { cn } from "@/lib/utils";
 import { LeadModal } from "@/components/leads/LeadModal";
-import { StatsCard } from "@/components/ui/stats-card";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
+import { loadLeads, saveLeads, seedLeadsIfEmpty } from "@/lib/storage";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { exportLeadsToCsv } from "@/lib/export-csv";
 
 // Mock data para demonstração
 const mockLeads: Lead[] = [
@@ -191,7 +192,13 @@ const LeadCard = ({ lead, index, onEdit, onView }: LeadCardProps) => {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    {lead.fotoConta && (
+                    {lead.fotoConta ? (
+                      <img
+                        src={lead.fotoConta}
+                        alt={`Foto da conta - ${lead.nomeEmpresa}`}
+                        className="w-6 h-6 rounded object-cover"
+                      />
+                    ) : (
                       <FileImage className="w-4 h-4 text-accent" />
                     )}
                     <Button 
@@ -280,11 +287,27 @@ const LeadCard = ({ lead, index, onEdit, onView }: LeadCardProps) => {
 };
 
 export const KanbanBoard = () => {
-  const [leads, setLeads] = useState<Lead[]>(mockLeads);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [viewMode, setViewMode] = useState<"edit" | "view">("edit");
+
+  // Filtros
+  const [bairroFilter, setBairroFilter] = useState("");
+  const [etapaFilter, setEtapaFilter] = useState<Lead["etapa"] | "">("");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+
+  // Seed/load
+  useEffect(() => {
+    seedLeadsIfEmpty(mockLeads);
+    const loaded = loadLeads();
+    setLeads(loaded.length ? loaded : mockLeads);
+  }, []);
+  useEffect(() => {
+    if (leads.length) saveLeads(leads);
+  }, [leads]);
 
   const handleDragEnd = (result: any) => {
     if (!result.destination) return;
@@ -295,20 +318,40 @@ export const KanbanBoard = () => {
       return;
     }
 
-    setLeads(prevLeads => 
-      prevLeads.map(lead => 
-        lead.id === draggableId 
-          ? { ...lead, etapa: destination.droppableId as Lead['etapa'] }
+    setLeads((prevLeads) =>
+      prevLeads.map((lead) =>
+        lead.id === draggableId
+          ? {
+              ...lead,
+              etapa: destination.droppableId as Lead["etapa"],
+              dataUltimaAtualizacao: new Date(),
+            }
           : lead
       )
     );
   };
 
-  const filteredLeads = leads.filter(lead => 
-    lead.nomeEmpresa.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    lead.nomeResponsavel.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    lead.telefone.includes(searchTerm)
-  );
+  const filteredLeads = leads.filter((lead) => {
+    const matchesSearch =
+      lead.nomeEmpresa.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.nomeResponsavel.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.telefone.includes(searchTerm);
+
+    const matchesBairro = bairroFilter
+      ? (lead.bairro || "").toLowerCase().includes(bairroFilter.toLowerCase())
+      : true;
+
+    const matchesEtapa = etapaFilter ? lead.etapa === etapaFilter : true;
+
+    const updatedAt = lead.dataUltimaAtualizacao instanceof Date
+      ? lead.dataUltimaAtualizacao
+      : new Date(lead.dataUltimaAtualizacao);
+
+    const matchesStart = startDate ? updatedAt >= new Date(startDate) : true;
+    const matchesEnd = endDate ? updatedAt <= new Date(endDate + "T23:59:59") : true;
+
+    return matchesSearch && matchesBairro && matchesEtapa && matchesStart && matchesEnd;
+  });
 
   const getLeadsByColumn = (columnId: string) => {
     return filteredLeads.filter(lead => lead.etapa === columnId);
@@ -347,7 +390,7 @@ export const KanbanBoard = () => {
             : lead
         )
       );
-      toast.success("Lead atualizado com sucesso!");
+      toast({ title: "Lead atualizado com sucesso!" });
     } else {
       // Criando novo lead
       const newLead: Lead = {
@@ -357,7 +400,7 @@ export const KanbanBoard = () => {
         dataUltimaAtualizacao: new Date(),
       };
       setLeads(prevLeads => [...prevLeads, newLead]);
-      toast.success("Novo lead criado com sucesso!");
+      toast({ title: "Novo lead criado com sucesso!" });
     }
   };
 
@@ -370,8 +413,8 @@ export const KanbanBoard = () => {
           <p className="text-muted-foreground">Kanban de vendas VIA SOLAR</p>
         </div>
         
-        <div className="flex gap-3 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-80">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto sm:items-center">
+          <div className="relative flex-1 sm:w-72">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
@@ -381,11 +424,47 @@ export const KanbanBoard = () => {
               className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
-          <Button variant="outline">
-            <Filter className="w-4 h-4 mr-2" />
-            Filtros
+
+          <Input
+            placeholder="Bairro"
+            value={bairroFilter}
+            onChange={(e) => setBairroFilter(e.target.value)}
+            className="sm:w-40"
+          />
+
+          <Select value={etapaFilter} onValueChange={(v) => setEtapaFilter(v as any)}>
+            <SelectTrigger className="sm:w-48">
+              <SelectValue placeholder="Etapa" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Todas as Etapas</SelectItem>
+              <SelectItem value="novo-contato">Novo Contato</SelectItem>
+              <SelectItem value="conta-recebida">Conta Recebida</SelectItem>
+              <SelectItem value="orcamento-apresentado">Orçamento Apresentado</SelectItem>
+              <SelectItem value="em-negociacao">Em Negociação</SelectItem>
+              <SelectItem value="fechado">Fechado</SelectItem>
+              <SelectItem value="perdido">Perdido</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="border rounded-lg px-3 py-2"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="border rounded-lg px-3 py-2"
+          />
+
+          <Button variant="outline" onClick={() => exportLeadsToCsv(filteredLeads)}>
+            Exportar CSV
           </Button>
-          <Button 
+
+          <Button
             className="bg-gradient-primary hover:bg-primary-hover"
             onClick={handleNewLead}
           >
@@ -463,9 +542,14 @@ export const KanbanBoard = () => {
       {/* Modal para criar/editar leads */}
       <LeadModal
         open={modalOpen}
-        onOpenChange={setModalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) setViewMode("edit");
+        }}
         lead={selectedLead}
         onSubmit={handleSubmitLead}
+        mode={viewMode}
+        onEditClick={() => setViewMode("edit")}
       />
     </div>
   );

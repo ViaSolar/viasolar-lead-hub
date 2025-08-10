@@ -14,22 +14,41 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, X, FileImage, FileText, Building2, User, Phone, Mail, MapPin, Zap, DollarSign } from "lucide-react";
 import { Lead } from "@/types";
 
-const leadSchema = z.object({
-  nomeEmpresa: z.string().min(2, "Nome da empresa é obrigatório"),
-  nomeResponsavel: z.string().min(2, "Nome do responsável é obrigatório"),
-  telefone: z.string().min(10, "Telefone é obrigatório"),
-  email: z.string().email("Email inválido").optional().or(z.literal("")),
-  endereco: z.string().optional(),
-  valorContaLuz: z.number().min(1, "Valor da conta é obrigatório"),
-  consumoMedio: z.number().optional(),
-  tipoRelogio: z.enum(["Monofásico", "Bifásico", "Trifásico", "Agrupado"]),
-  orcamentoApresentado: z.boolean(),
-  motivoNaoApresentacao: z.string().optional(),
-  observacoes: z.string().optional(),
-  etapa: z.enum(["novo-contato", "conta-recebida", "orcamento-apresentado", "em-negociacao", "fechado", "perdido"]),
-  bairro: z.string().optional(),
-  valorOrcamento: z.number().optional(),
-});
+const leadSchema = z
+  .object({
+    nomeEmpresa: z.string().min(2, "Nome da empresa é obrigatório"),
+    nomeResponsavel: z.string().min(2, "Nome do responsável é obrigatório"),
+    telefone: z.string().min(10, "Telefone é obrigatório"),
+    email: z.string().email("Email inválido").optional().or(z.literal("")),
+    endereco: z.string().optional(),
+    valorContaLuz: z.number().min(1, "Valor da conta é obrigatório"),
+    consumoMedio: z.number().optional(),
+    tipoRelogio: z.enum(["Monofásico", "Bifásico", "Trifásico", "Agrupado"]),
+    orcamentoApresentado: z.boolean(),
+    motivoNaoApresentacao: z.string().optional(),
+    observacoes: z.string().optional(),
+    etapa: z.enum([
+      "novo-contato",
+      "conta-recebida",
+      "orcamento-apresentado",
+      "em-negociacao",
+      "fechado",
+      "perdido",
+    ]),
+    bairro: z.string().optional(),
+    valorOrcamento: z.number().optional(),
+    // Uploads serializados (base64/dataURL ou URL futura)
+    fotoConta: z.string().optional(),
+    fotoFachada: z.string().optional(),
+    propostaPdf: z.string().optional(),
+  })
+  .refine(
+    (data) => data.orcamentoApresentado || !!(data.motivoNaoApresentacao && data.motivoNaoApresentacao.trim().length > 0),
+    {
+      message: "Motivo da não apresentação é obrigatório",
+      path: ["motivoNaoApresentacao"],
+    }
+  );
 
 type LeadFormData = z.infer<typeof leadSchema>;
 
@@ -100,9 +119,29 @@ export const LeadForm = ({ lead, onSubmit, onCancel }: LeadFormProps) => {
     }
   });
 
-  const onFormSubmit = (data: LeadFormData) => {
-    onSubmit(data);
-  };
+const fileToDataURL = (file: File | null) =>
+  new Promise<string | undefined>((resolve) => {
+    if (!file) return resolve(undefined);
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
+
+const onFormSubmit = async (data: LeadFormData) => {
+  const [fotoContaUrl, fotoFachadaUrl, propostaPdfUrl] = await Promise.all([
+    fileToDataURL(fotoConta),
+    fileToDataURL(fotoFachada),
+    fileToDataURL(propostaPdf),
+  ]);
+
+  onSubmit({
+    ...data,
+    fotoConta: fotoContaUrl ?? (lead?.fotoConta as string | undefined),
+    fotoFachada: fotoFachadaUrl ?? (lead?.fotoFachada as string | undefined),
+    propostaPdf: propostaPdfUrl ?? (lead?.propostaPdf as string | undefined),
+  });
+};
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -297,6 +336,34 @@ export const LeadForm = ({ lead, onSubmit, onCancel }: LeadFormProps) => {
                 />
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Etapa do Funil */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-primary" />
+              Etapa no Funil
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="etapa">Etapa Atual</Label>
+              <Select value={getValues("etapa")} onValueChange={(value) => setValue("etapa", value as any)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a etapa" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="novo-contato">Novo Contato</SelectItem>
+                  <SelectItem value="conta-recebida">Conta Recebida</SelectItem>
+                  <SelectItem value="orcamento-apresentado">Orçamento Apresentado</SelectItem>
+                  <SelectItem value="em-negociacao">Em Negociação</SelectItem>
+                  <SelectItem value="fechado">Fechado</SelectItem>
+                  <SelectItem value="perdido">Perdido / Não Apresentado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardContent>
         </Card>
 
