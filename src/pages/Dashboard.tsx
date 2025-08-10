@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -27,50 +28,119 @@ import {
   AlertTriangle,
   Crown
 } from "lucide-react";
+import { getWeekKey, getWeekRange, loadLeads, loadVisits } from "@/lib/storage";
 
 const Dashboard = () => {
-  // Dados mockados para demonstração
-  const kpisSemanais = {
-    visitasFeitas: 47,
-    empresasCadastradas: 23,
-    contasRecebidas: 15,
-    orcamentosApresentados: 12,
-    propostasWhatsApp: 8,
-    fechamentos: 3,
-    taxaConversao: 6.4,
-    ticketMedio: 15000,
-    valorTotalVendido: 45000
+  const leads = useMemo(() => loadLeads(), []);
+  const visits = useMemo(() => loadVisits(), []);
+
+  const weekKey = getWeekKey();
+  const { start, end } = getWeekRange(weekKey);
+  const inRange = (d?: Date | string) => {
+    if (!d) return false;
+    const dt = d instanceof Date ? d : new Date(d);
+    return dt >= start && dt <= end;
   };
 
-  const evolucaoSemanal = [
-    { semana: "S1", orcamentos: 8, vendas: 2 },
-    { semana: "S2", orcamentos: 12, vendas: 3 },
-    { semana: "S3", orcamentos: 10, vendas: 1 },
-    { semana: "S4", orcamentos: 15, vendas: 4 },
-  ];
+  const kpisSemanais = useMemo(() => {
+    const visitasSemanais = visits.filter((v) => v.data >= start && v.data <= end);
+    const empresasCadastradas = leads.filter((l) => inRange(l.dataCadastro)).length;
+    const contasRecebidas = leads.filter((l) => l.etapa === "conta-recebida" && inRange(l.dataUltimaAtualizacao)).length;
+    const orcamentosApresentados = leads.filter((l) => l.orcamentoApresentado && inRange(l.dataUltimaAtualizacao)).length;
+    const propostasWhatsApp = visitasSemanais.filter((v) => v.orcamentoApresentado).length;
+    const fechamentos = leads.filter((l) => l.etapa === "fechado" && inRange(l.dataUltimaAtualizacao)).length;
+    const valorTotalVendido = leads
+      .filter((l) => l.etapa === "fechado" && inRange(l.dataUltimaAtualizacao))
+      .reduce((sum, l) => sum + (l.valorOrcamento || 0), 0);
+    const ticketMedio = fechamentos > 0 ? Math.round(valorTotalVendido / fechamentos) : 0;
+    const taxaConversao = visitasSemanais.length > 0 ? Number(((fechamentos / visitasSemanais.length) * 100).toFixed(1)) : 0;
 
-  const topBairros = [
-    { bairro: "Centro", prospeccoes: 25, conversoes: 8 },
-    { bairro: "Jardim América", prospeccoes: 18, conversoes: 5 },
-    { bairro: "Vila Nova", prospeccoes: 15, conversoes: 3 },
-    { bairro: "Industrial", prospeccoes: 12, conversoes: 4 },
-    { bairro: "São José", prospeccoes: 10, conversoes: 2 },
-  ];
+    return {
+      visitasFeitas: visitasSemanais.length,
+      empresasCadastradas,
+      contasRecebidas,
+      orcamentosApresentados,
+      propostasWhatsApp,
+      fechamentos,
+      taxaConversao,
+      ticketMedio,
+      valorTotalVendido,
+    };
+  }, [leads, visits, start, end]);
 
-  const motivosPerda = [
-    { motivo: "Preço alto", quantidade: 12, cor: "#ef4444" },
-    { motivo: "Não tem interesse", quantidade: 8, cor: "#f97316" },
-    { motivo: "Vai pensar", quantidade: 6, cor: "#eab308" },
-    { motivo: "Já tem fornecedor", quantidade: 4, cor: "#22c55e" },
-  ];
+  const evolucaoSemanal = useMemo(() => {
+    const arr: { semana: string; orcamentos: number; vendas: number }[] = [];
+    for (let i = 3; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i * 7);
+      const wk = getWeekKey(d);
+      const { start: s, end: e } = getWeekRange(wk);
+      const orc = leads.filter((l) => l.orcamentoApresentado && ((l.dataUltimaAtualizacao instanceof Date ? l.dataUltimaAtualizacao : new Date(l.dataUltimaAtualizacao)) >= s) && ((l.dataUltimaAtualizacao instanceof Date ? l.dataUltimaAtualizacao : new Date(l.dataUltimaAtualizacao)) <= e)).length;
+      const ven = leads.filter((l) => l.etapa === "fechado" && ((l.dataUltimaAtualizacao instanceof Date ? l.dataUltimaAtualizacao : new Date(l.dataUltimaAtualizacao)) >= s) && ((l.dataUltimaAtualizacao instanceof Date ? l.dataUltimaAtualizacao : new Date(l.dataUltimaAtualizacao)) <= e)).length;
+      arr.push({ semana: `S${4 - i}`, orcamentos: orc, vendas: ven });
+    }
+    return arr;
+  }, [leads]);
 
-  const gargalosFunil = [
-    { etapa: "Novo Contato", quantidade: 25 },
-    { etapa: "Conta Recebida", quantidade: 15 },
-    { etapa: "Orçamento Apresentado", quantidade: 12 },
-    { etapa: "Em Negociação", quantidade: 8 },
-    { etapa: "Fechado", quantidade: 3 },
-  ];
+  const topBairros = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 60);
+    const prospeccoes = new Map<string, number>();
+    const conversoes = new Map<string, number>();
+
+    visits.filter((v) => v.data >= cutoff).forEach((v) => {
+      if (!v.bairro) return;
+      prospeccoes.set(v.bairro, (prospeccoes.get(v.bairro) || 0) + 1);
+    });
+    leads.filter((l) => l.etapa === "fechado").forEach((l) => {
+      if (!l.bairro) return;
+      conversoes.set(l.bairro, (conversoes.get(l.bairro) || 0) + 1);
+    });
+
+    const bairros = Array.from(prospeccoes.keys()).map((b) => ({
+      bairro: b,
+      prospeccoes: prospeccoes.get(b) || 0,
+      conversoes: conversoes.get(b) || 0,
+    }));
+
+    return bairros.sort((a, b) => b.prospeccoes - a.prospeccoes).slice(0, 5);
+  }, [visits, leads]);
+
+  const motivosPerda = useMemo(() => {
+    const cores = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#8b5cf6"];
+    const map = new Map<string, number>();
+    leads.filter((l) => l.etapa === "perdido").forEach((l) => {
+      const k = l.motivoNaoApresentacao?.trim() || "Outro";
+      map.set(k, (map.get(k) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([motivo, quantidade], idx) => ({ motivo, quantidade, cor: cores[idx % cores.length] }));
+  }, [leads]);
+
+  const gargalosFunil = useMemo(() => {
+    const etapas = [
+      "novo-contato",
+      "conta-recebida",
+      "orcamento-apresentado",
+      "em-negociacao",
+      "fechado",
+      "perdido",
+    ] as const;
+    const map = new Map<string, number>();
+    etapas.forEach((e) => map.set(e, 0));
+    leads.forEach((l) => map.set(l.etapa, (map.get(l.etapa) || 0) + 1));
+    const label = (e: string) => {
+      switch (e) {
+        case "novo-contato": return "Novo Contato";
+        case "conta-recebida": return "Conta Recebida";
+        case "orcamento-apresentado": return "Orçamento Apresentado";
+        case "em-negociacao": return "Em Negociação";
+        case "fechado": return "Fechado";
+        case "perdido": return "Perdido";
+        default: return e;
+      }
+    };
+    return Array.from(map.entries()).map(([etapa, quantidade]) => ({ etapa: label(etapa), quantidade }));
+  }, [leads]);
 
   return (
     <div className="space-y-6">
