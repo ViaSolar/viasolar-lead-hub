@@ -295,7 +295,7 @@ export const KanbanBoard = () => {
 
   // Filtros
   const [bairroFilter, setBairroFilter] = useState("");
-  const [etapaFilter, setEtapaFilter] = useState<Lead["etapa"] | "all">("all");
+  const [etapaFilter, setEtapaFilter] = useState<Lead["etapa"] | "">("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
@@ -341,7 +341,7 @@ export const KanbanBoard = () => {
       ? (lead.bairro || "").toLowerCase().includes(bairroFilter.toLowerCase())
       : true;
 
-    const matchesEtapa = etapaFilter === "all" ? true : lead.etapa === etapaFilter;
+    const matchesEtapa = etapaFilter ? lead.etapa === etapaFilter : true;
 
     const updatedAt = lead.dataUltimaAtualizacao instanceof Date
       ? lead.dataUltimaAtualizacao
@@ -437,7 +437,7 @@ export const KanbanBoard = () => {
               <SelectValue placeholder="Etapa" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas as Etapas</SelectItem>
+              <SelectItem value="">Todas as Etapas</SelectItem>
               <SelectItem value="novo-contato">Novo Contato</SelectItem>
               <SelectItem value="conta-recebida">Conta Recebida</SelectItem>
               <SelectItem value="orcamento-apresentado">Orçamento Apresentado</SelectItem>
